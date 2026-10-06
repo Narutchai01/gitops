@@ -19,9 +19,55 @@ outputs:
   digest:
     description: Pushed image digest
     value: ${{ steps.build.outputs.digest }}
+  tags:
+    description: Image tags with lowercase repository names
+    value: ${{ steps.normalize.outputs.tags }}
+  image-name:
+    description: Lowercase image repository name
+    value: ${{ steps.normalize.outputs.image-name }}
 runs:
   using: composite
   steps:
+    - id: normalize
+      shell: bash
+      env:
+        TAGS: ${{ inputs.tags }}
+      run: |
+        NORMALIZED_TAGS=""
+        FIRST_IMAGE=""
+        while IFS= read -r IMAGE_TAG; do
+          [ -z "$IMAGE_TAG" ] && continue
+          IMAGE="${IMAGE_TAG%:*}"
+          TAG="${IMAGE_TAG##*:}"
+          if [ "$IMAGE" = "$IMAGE_TAG" ]; then
+            echo "Invalid image tag (expected image:tag): $IMAGE_TAG"
+            exit 1
+          fi
+          IMAGE=$(printf '%s' "$IMAGE" | tr '[:upper:]' '[:lower:]')
+          if [ -z "$FIRST_IMAGE" ]; then
+            FIRST_IMAGE="$IMAGE"
+          fi
+          if [ -n "$NORMALIZED_TAGS" ]; then
+            NORMALIZED_TAGS+=$'\n'
+          fi
+          NORMALIZED_TAGS+="$IMAGE:$TAG"
+        done <<< "$TAGS"
+
+        if [ -z "$NORMALIZED_TAGS" ]; then
+          echo "At least one image tag is required."
+          exit 1
+        fi
+
+        echo "image-name=$FIRST_IMAGE" >> "$GITHUB_OUTPUT"
+        DELIMITER=IMAGE_TAGS_EOF
+        while printf '%s\n' "$NORMALIZED_TAGS" | grep -Fxq "$DELIMITER"; do
+          DELIMITER="${DELIMITER}_"
+        done
+        {
+          printf 'tags<<%s\n' "$DELIMITER"
+          printf '%s\n' "$NORMALIZED_TAGS"
+          printf '%s\n' "$DELIMITER"
+        } >> "$GITHUB_OUTPUT"
     - uses: docker/login-action@v4
       with:
         registry: ${{ inputs.registry }}
@@ -33,6 +79,6 @@ runs:
       with:
         context: .
         push: true
-        tags: ${{ inputs.tags }}
+        tags: ${{ steps.normalize.outputs.tags }}
         cache-from: type=gha
         cache-to: type=gha,mode=max

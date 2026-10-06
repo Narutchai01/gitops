@@ -12,7 +12,7 @@ Call an action from another repository with `uses: narutchai01/gitops/.github/ac
 | `prepare-production` | Required: `release-branch`, `release-sha`, `main-sha`; optional: `allow-package-version-change` (default `true`) | `version`, `rc-tag`, `final-tag` |
 | `node-quality` | Optional: `node-version` (default `24`) | — |
 | `go-quality` | Requires `go.mod` at the repository root | — |
-| `build-image` | Required: `tags`, `token`; optional: `registry` (default `ghcr.io`), `image-name` (default caller repository) | `digest` |
+| `build-image` | Required: `tags`, `token`; optional: `registry` (default `ghcr.io`), `image-name` (default caller repository) | `digest`, lowercase `image-name`, normalized `tags` |
 | `promote-image` | Required: `rc-tag`, `final-tag`, `token`; optional: `registry` (default `ghcr.io`), `image-name` (default caller repository) | `digest` |
 | `create-release` | Required: `tag`, `token`; optional: `sha` (default caller commit), `prerelease` (default `false`) | — |
 
@@ -34,6 +34,8 @@ Example steps after checkout:
 ```
 
 Grant the caller `contents: write` for releases and `packages: write` for image actions. The token is passed explicitly to each action that needs it.
+
+The image actions convert the repository portion of Docker references to lowercase before use, while preserving the tag portion.
 
 ## Reusable workflows
 

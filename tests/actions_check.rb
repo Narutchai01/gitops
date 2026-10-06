@@ -166,6 +166,7 @@ class ActionsCheck < Minitest::Test
       File.write(File.join(bin, 'docker'), <<~SH)
         #!/bin/sh
         [ "$3" = "inspect" ] || exit 0
+        case "$4" in *[ABCDEFGHIJKLMNOPQRSTUVWXYZ]*) echo "image name is not lowercase" >&2; exit 3 ;; esac
         case "$4" in
           *:v1.2.3-rc.1) digest="$MOCK_SOURCE_DIGEST" ;;
           *:v1.2.3) digest="$MOCK_FINAL_DIGEST" ;;
@@ -184,15 +185,24 @@ class ActionsCheck < Minitest::Test
       }
       assert_failure do
         run_action('promote-image', repo,
-          {'registry' => 'ghcr.io', 'image-name' => 'acme/app', 'rc-tag' => 'v1.2.3-rc.1',
+          {'registry' => 'ghcr.io', 'image-name' => 'AcMe/App', 'rc-tag' => 'v1.2.3-rc.1',
            'final-tag' => 'v1.2.3', 'token' => 'test'}, extra_env: base_env)
       end
 
       base_env['MOCK_FINAL_DIGEST'] = 'sha256:tested'
       output = run_action('promote-image', repo,
-        {'registry' => 'ghcr.io', 'image-name' => 'acme/app', 'rc-tag' => 'v1.2.3-rc.1',
+        {'registry' => 'ghcr.io', 'image-name' => 'AcMe/App', 'rc-tag' => 'v1.2.3-rc.1',
          'final-tag' => 'v1.2.3', 'token' => 'test'}, extra_env: base_env)
       assert_equal 'sha256:tested', output.fetch('digest')
+    end
+  end
+
+  def test_build_image_lowercases_repository_but_preserves_tag
+    in_repo do |repo|
+      output = run_action('build-image', repo,
+        {'registry' => 'ghcr.io', 'image-name' => 'ignored', 'token' => 'test',
+         'tags' => "ghcr.io/Narutchai01/meeting-management-core-service:v0.0.22-rc.1\nghcr.io/Narutchai01/meeting-management-core-service:sha-AbC123"})
+      assert_equal "ghcr.io/narutchai01/meeting-management-core-service:v0.0.22-rc.1\nghcr.io/narutchai01/meeting-management-core-service:sha-AbC123", output.fetch('tags')
     end
   end
 
@@ -201,13 +211,13 @@ class ActionsCheck < Minitest::Test
       'release-rc-nextjs.yml' => {
         'prepare' => [[], %w[version tag]],
         'quality' => [%w[prepare], []],
-        'build' => [%w[prepare quality], %w[digest]],
+        'build' => [%w[prepare quality], %w[digest image-name]],
         'create-tag' => [%w[prepare build], []]
       },
       'release-rc-go.yml' => {
         'prepare' => [[], %w[version tag]],
         'quality' => [%w[prepare], []],
-        'build' => [%w[prepare quality], %w[digest]],
+        'build' => [%w[prepare quality], %w[digest image-name]],
         'create-tag' => [%w[prepare build], []]
       },
       'release-next.yml' => {
@@ -315,7 +325,27 @@ class ActionsCheck < Minitest::Test
       stdout, stderr, status = Open3.capture3(env, 'bash', '--noprofile', '--norc', '-eo', 'pipefail', '-c', step.fetch('run'), chdir: repo)
       raise "#{name} failed at #{step.fetch('run')}: #{stderr}#{stdout}" unless status.success?
     end
-    File.readlines(output_path, chomp: true).to_h { |line| line.split('=', 2) }
+    outputs = {}
+    lines = File.readlines(output_path, chomp: true)
+    index = 0
+    while index < lines.length
+      line = lines[index]
+      if (match = line.match(/\A([^<]+)<<(.+)\z/))
+        key, delimiter = match.captures
+        value = []
+        index += 1
+        while index < lines.length && lines[index] != delimiter
+          value << lines[index]
+          index += 1
+        end
+        outputs[key] = value.join("\n")
+      else
+        key, value = line.split('=', 2)
+        outputs[key] = value
+      end
+      index += 1
+    end
+    outputs
   end
 
   def mock_gh(repo)

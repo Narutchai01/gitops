@@ -59,6 +59,7 @@ jobs:
 
     outputs:
       digest: ${{ steps.build.outputs.digest }}
+      image-name: ${{ steps.build.outputs.image-name }}
 
     steps:
       - name: Checkout
@@ -101,5 +102,5 @@ jobs:
           echo "### Go Release Candidate" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Tag: \`${{ needs.prepare.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "Image: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.prepare.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Image: \`${{ env.REGISTRY }}/${{ needs.build.outputs.image-name }}:${{ needs.prepare.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "Digest: \`${{ needs.build.outputs.digest }}\`" >> "$GITHUB_STEP_SUMMARY"
