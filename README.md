@@ -4,7 +4,7 @@ Reusable GitHub Actions for Next.js and Go release candidates and production rel
 
 ## Composite actions
 
-Call an action from another repository with `uses: Narutchai01/gitops/.github/actions/<action>@main`. The caller must check out its own source first. Release actions expect an Ubuntu runner and Bash; production checks also use `git` and `jq`.
+Call an action from another repository with `uses: narutchai01/gitops/.github/actions/<action>@main`. The caller must check out its own source first. Release actions expect an Ubuntu runner and Bash; production checks also use `git` and `jq`.
 
 | Action | Inputs | Outputs |
 | --- | --- | --- |
@@ -19,10 +19,10 @@ Call an action from another repository with `uses: Narutchai01/gitops/.github/ac
 Example steps after checkout:
 
 ```yaml
-- uses: Narutchai01/gitops/.github/actions/node-quality@main
+- uses: narutchai01/gitops/.github/actions/node-quality@main
   with:
     node-version: 24
-- uses: Narutchai01/gitops/.github/actions/build-image@main
+- uses: narutchai01/gitops/.github/actions/build-image@main
   id: image
   with:
     registry: ghcr.io
@@ -42,7 +42,7 @@ Go projects need a root `go.mod` and `Dockerfile`; the Go RC workflow runs `go v
 ```yaml
 jobs:
   release-rc:
-    uses: Narutchai01/gitops/.github/workflows/release-rc-go.yml@main
+    uses: narutchai01/gitops/.github/workflows/release-rc-go.yml@main
     permissions:
       contents: write
       packages: write
@@ -53,7 +53,7 @@ Go production releases use the same image promotion flow and require the full so
 ```yaml
 jobs:
   release:
-    uses: Narutchai01/gitops/.github/workflows/release-go.yml@main
+    uses: narutchai01/gitops/.github/workflows/release-go.yml@main
     with:
       release-branch: release/1.4.0
       release-sha: ${{ needs.merge.outputs.release-sha }}
@@ -70,7 +70,7 @@ For Next.js RC, use:
 ```yaml
 jobs:
   release-rc:
-    uses: Narutchai01/gitops/.github/workflows/release-rc-nextjs.yml@main
+    uses: narutchai01/gitops/.github/workflows/release-rc-nextjs.yml@main
     permissions:
       contents: write
       packages: write
@@ -81,7 +81,7 @@ Next.js production callers pass the release branch, its tested head SHA, and the
 ```yaml
 jobs:
   release:
-    uses: Narutchai01/gitops/.github/workflows/release-next.yml@main
+    uses: narutchai01/gitops/.github/workflows/release-next.yml@main
     with:
       release-branch: release/1.4.0
       release-sha: ${{ needs.merge.outputs.release-sha }}

@@ -50,7 +50,7 @@ jobs:
 
       - name: Prepare production release
         id: release
-        uses: Narutchai01/gitops/.github/actions/prepare-production@main
+        uses: narutchai01/gitops/.github/actions/prepare-production@main
         with:
           release-branch: ${{ inputs.release-branch }}
           release-sha: ${{ inputs.release-sha }}
@@ -70,7 +70,7 @@ jobs:
     steps:
       - name: Promote RC image
         id: promote
-        uses: Narutchai01/gitops/.github/actions/promote-image@main
+        uses: narutchai01/gitops/.github/actions/promote-image@main
         with:
           registry: ${{ env.REGISTRY }}
           image-name: ${{ env.IMAGE_NAME }}
@@ -93,7 +93,7 @@ jobs:
           fetch-depth: 0
 
       - name: Create production release
-        uses: Narutchai01/gitops/.github/actions/create-release@main
+        uses: narutchai01/gitops/.github/actions/create-release@main
         with:
           tag: ${{ needs.prepare.outputs.final-tag }}
           sha: ${{ inputs.main-sha }}

@@ -224,11 +224,11 @@ class ActionsCheck < Minitest::Test
       assert_equal jobs.keys, workflow.fetch('jobs').keys
       workflow.fetch('jobs').each_value do |job|
         job.fetch('steps', []).each do |step|
-          next unless step['uses']&.start_with?('Narutchai01/gitops/.github/actions/')
+          next unless step['uses']&.start_with?('narutchai01/gitops/.github/actions/')
 
           action, ref = step.fetch('uses').split('@', 2)
           assert_equal 'main', ref
-          assert File.file?(File.join(ROOT, action.sub('Narutchai01/gitops/', '')) + '/action.yml')
+          assert File.file?(File.join(ROOT, action.sub('narutchai01/gitops/', '')) + '/action.yml')
         end
       end
       jobs.each do |name, (needs, outputs)|
@@ -251,7 +251,7 @@ class ActionsCheck < Minitest::Test
 
     go_release = load_yaml(File.join(ROOT, '.github/workflows/release-go.yml'))
     call = go_release.fetch('jobs').fetch('release')
-    assert_equal 'Narutchai01/gitops/.github/workflows/release-next.yml@main', call.fetch('uses')
+    assert_equal 'narutchai01/gitops/.github/workflows/release-next.yml@main', call.fetch('uses')
     assert_equal 'false', call.fetch('with').fetch('allow-package-version-change').to_s
     assert_equal %w[release-branch release-sha main-sha allow-package-version-change], call.fetch('with').keys
 

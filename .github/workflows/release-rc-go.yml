@@ -32,7 +32,7 @@ jobs:
 
       - name: Get version from branch
         id: version
-        uses: Narutchai01/gitops/.github/actions/prepare-rc@main
+        uses: narutchai01/gitops/.github/actions/prepare-rc@main
         with:
           release-branch: ${{ github.ref_name }}
 
@@ -47,7 +47,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Setup Go and run checks
-        uses: Narutchai01/gitops/.github/actions/go-quality@main
+        uses: narutchai01/gitops/.github/actions/go-quality@main
 
   build:
     name: Build Go Image
@@ -66,7 +66,7 @@ jobs:
 
       - name: Build and push
         id: build
-        uses: Narutchai01/gitops/.github/actions/build-image@main
+        uses: narutchai01/gitops/.github/actions/build-image@main
         with:
           registry: ${{ env.REGISTRY }}
           image-name: ${{ env.IMAGE_NAME }}
@@ -90,7 +90,7 @@ jobs:
           fetch-depth: 0
 
       - name: Create RC release
-        uses: Narutchai01/gitops/.github/actions/create-release@main
+        uses: narutchai01/gitops/.github/actions/create-release@main
         with:
           tag: ${{ needs.prepare.outputs.tag }}
           prerelease: "true"

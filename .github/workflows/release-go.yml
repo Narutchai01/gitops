@@ -23,7 +23,7 @@ permissions:
 jobs:
   release:
     name: Release Go Image
-    uses: Narutchai01/gitops/.github/workflows/release-next.yml@main
+    uses: narutchai01/gitops/.github/workflows/release-next.yml@main
     with:
       release-branch: ${{ inputs.release-branch }}
       release-sha: ${{ inputs.release-sha }}
