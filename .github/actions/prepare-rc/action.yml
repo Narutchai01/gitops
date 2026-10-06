@@ -1,0 +1,44 @@
+name: Prepare RC
+description: Validate a release branch and calculate its next release candidate tag.
+inputs:
+  release-branch:
+    description: Release branch, for example release/1.4.0
+    required: true
+outputs:
+  version:
+    description: Release version
+    value: ${{ steps.prepare.outputs.version }}
+  tag:
+    description: Next release candidate tag
+    value: ${{ steps.prepare.outputs.tag }}
+runs:
+  using: composite
+  steps:
+    - id: prepare
+      shell: bash
+      env:
+        RELEASE_BRANCH: ${{ inputs.release-branch }}
+      run: |
+        VERSION="${RELEASE_BRANCH#release/}"
+        if [[ ! "$RELEASE_BRANCH" =~ ^release/[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "Invalid release branch: $RELEASE_BRANCH"
+          echo "Expected: release/x.y.z"
+          exit 1
+        fi
+
+        git fetch --tags --force
+        LATEST_RC=$(git tag --list "v${VERSION}-rc.*" --sort=-v:refname | head -n 1)
+        if [ -z "$LATEST_RC" ]; then
+          NEXT_RC=1
+        else
+          CURRENT_RC="${LATEST_RC##*.}"
+          if [[ ! "$CURRENT_RC" =~ ^[0-9]+$ ]]; then
+            echo "Invalid RC tag: $LATEST_RC"
+            exit 1
+          fi
+          NEXT_RC=$((CURRENT_RC + 1))
+        fi
+
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        echo "tag=v${VERSION}-rc.${NEXT_RC}" >> "$GITHUB_OUTPUT"
+        echo "Next RC: v${VERSION}-rc.${NEXT_RC}"

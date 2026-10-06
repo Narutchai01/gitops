@@ -1,0 +1,87 @@
+name: Prepare Production Release
+description: Find the latest RC and verify its commit and source tree against main.
+inputs:
+  release-branch:
+    description: Release branch, for example release/1.4.0
+    required: true
+  release-sha:
+    description: Expected release branch HEAD SHA
+    required: true
+  main-sha:
+    description: Main merge commit SHA
+    required: true
+  allow-package-version-change:
+    description: Allow package.json version metadata to differ between RC and main
+    required: false
+    default: 'true'
+outputs:
+  version:
+    description: Release version
+    value: ${{ steps.prepare.outputs.version }}
+  rc-tag:
+    description: Release candidate tag
+    value: ${{ steps.prepare.outputs.rc-tag }}
+  final-tag:
+    description: Production tag
+    value: ${{ steps.prepare.outputs.final-tag }}
+runs:
+  using: composite
+  steps:
+    - id: prepare
+      shell: bash
+      env:
+        RELEASE_BRANCH: ${{ inputs.release-branch }}
+        RELEASE_SHA: ${{ inputs.release-sha }}
+        MAIN_SHA: ${{ inputs.main-sha }}
+        ALLOW_PACKAGE_VERSION_CHANGE: ${{ inputs.allow-package-version-change }}
+      run: |
+        VERSION="${RELEASE_BRANCH#release/}"
+        if [[ ! "$RELEASE_BRANCH" =~ ^release/[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "Invalid release branch: $RELEASE_BRANCH"
+          echo "Expected: release/x.y.z"
+          exit 1
+        fi
+
+        git fetch --tags --force
+        RC_TAG=$(git tag --list "v${VERSION}-rc.*" --sort=-v:refname | head -n 1)
+        if [ -z "$RC_TAG" ]; then
+          echo "No RC found for version $VERSION"
+          exit 1
+        fi
+
+        RC_SHA=$(git rev-list -n 1 "$RC_TAG")
+        echo "RC tag commit: $RC_SHA"
+        echo "Release HEAD:   $RELEASE_SHA"
+        if [ "$RC_SHA" != "$RELEASE_SHA" ]; then
+          echo "RC tag does not point to the merged release HEAD."
+          echo "A newer commit may have been merged without creating/testing an RC."
+          exit 1
+        fi
+
+        if [ "$ALLOW_PACKAGE_VERSION_CHANGE" = "true" ]; then
+          # The release branch determines the product version; package.json has its own version cadence.
+          if ! git diff --quiet "$RC_TAG" "$MAIN_SHA" -- . ':(exclude)package.json'; then
+            echo "Main source differs from the tested RC."
+            echo "Production promotion aborted."
+            exit 1
+          fi
+
+          RC_PACKAGE=$(git show "$RC_TAG:package.json" | jq -cS 'del(.version)')
+          MAIN_PACKAGE=$(git show "$MAIN_SHA:package.json" | jq -cS 'del(.version)')
+          if [ "$RC_PACKAGE" != "$MAIN_PACKAGE" ]; then
+            echo "package.json changed beyond its release metadata version."
+            echo "Production promotion aborted."
+            exit 1
+          fi
+        elif ! git diff --quiet "$RC_TAG" "$MAIN_SHA"; then
+          echo "Main source differs from the tested RC."
+          echo "Production promotion aborted."
+          exit 1
+        fi
+
+        echo "RC:    $RC_TAG"
+        echo "Final: v${VERSION}"
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        echo "rc-tag=$RC_TAG" >> "$GITHUB_OUTPUT"
+        echo "final-tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+        echo "Release tree matches main; package.json version metadata may differ."

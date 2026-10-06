@@ -1,0 +1,31 @@
+name: Go Production Release
+
+on:
+  workflow_call:
+    inputs:
+      release-branch:
+        description: Release branch, e.g. release/1.4.0
+        required: true
+        type: string
+      release-sha:
+        description: Release branch HEAD SHA
+        required: true
+        type: string
+      main-sha:
+        description: Main merge commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    name: Release Go Image
+    uses: Narutchai01/gitops/.github/workflows/release-next.yml@main
+    with:
+      release-branch: ${{ inputs.release-branch }}
+      release-sha: ${{ inputs.release-sha }}
+      main-sha: ${{ inputs.main-sha }}
+      allow-package-version-change: false

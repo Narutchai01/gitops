@@ -1,0 +1,13 @@
+name: Go Quality
+description: Set up Go from go.mod and run vet and tests.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v7
+      with:
+        go-version-file: go.mod
+        cache: true
+    - shell: bash
+      run: go vet ./...
+    - shell: bash
+      run: go test ./...

@@ -1,0 +1,61 @@
+name: Create GitHub Release
+description: Create a Git tag and GitHub release as an RC prerelease or production release.
+inputs:
+  tag:
+    description: Release tag to create
+    required: true
+  sha:
+    description: Commit for the release tag; defaults to the caller commit
+    required: false
+    default: ''
+  prerelease:
+    description: Whether this is a release candidate
+    required: false
+    default: 'false'
+  token:
+    description: GitHub token with contents write permission
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        TAG: ${{ inputs.tag }}
+        RELEASE_SHA: ${{ inputs.sha || github.sha }}
+        PRERELEASE: ${{ inputs.prerelease }}
+        GH_TOKEN: ${{ inputs.token }}
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+        if [ "$PRERELEASE" = "true" ]; then
+          git tag -a "$TAG" "$RELEASE_SHA" -m "Release candidate $TAG"
+          git push origin "$TAG"
+          gh release create "$TAG" --title "$TAG" --prerelease --generate-notes --verify-tag
+          exit 0
+        fi
+
+        git fetch --tags --force
+        if git rev-parse "$TAG" >/dev/null 2>&1; then
+          EXISTING_SHA=$(git rev-list -n 1 "$TAG")
+          if [ "$EXISTING_SHA" != "$RELEASE_SHA" ]; then
+            echo "$TAG already exists on another commit."
+            exit 1
+          fi
+          echo "$TAG already exists. Skipping."
+        else
+          git tag -a "$TAG" "$RELEASE_SHA" -m "Production release $TAG"
+          git push origin "$TAG"
+        fi
+
+        if gh release view "$TAG" >/dev/null 2>&1; then
+          echo "GitHub Release already exists: $TAG"
+          exit 0
+        fi
+
+        PREVIOUS_RELEASE=$(gh release list --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // empty')
+        if [ -n "$PREVIOUS_RELEASE" ]; then
+          gh release create "$TAG" --title "$TAG" --generate-notes --notes-start-tag "$PREVIOUS_RELEASE" --latest --verify-tag
+        else
+          gh release create "$TAG" --title "$TAG" --generate-notes --latest --verify-tag
+        fi

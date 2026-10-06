@@ -1,0 +1,38 @@
+name: Build and Push Image
+description: Log in to a container registry and build and push Docker image tags.
+inputs:
+  registry:
+    description: Container registry
+    required: false
+    default: ghcr.io
+  image-name:
+    description: Image name; defaults to the caller repository
+    required: false
+    default: ''
+  tags:
+    description: Newline-separated image tags
+    required: true
+  token:
+    description: Registry token
+    required: true
+outputs:
+  digest:
+    description: Pushed image digest
+    value: ${{ steps.build.outputs.digest }}
+runs:
+  using: composite
+  steps:
+    - uses: docker/login-action@v4
+      with:
+        registry: ${{ inputs.registry }}
+        username: ${{ github.actor }}
+        password: ${{ inputs.token }}
+    - uses: docker/setup-buildx-action@v4
+    - id: build
+      uses: docker/build-push-action@v7
+      with:
+        context: .
+        push: true
+        tags: ${{ inputs.tags }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max

@@ -22,7 +22,7 @@ jobs:
 
     outputs:
       version: ${{ steps.version.outputs.version }}
-      tag: ${{ steps.rc.outputs.tag }}
+      tag: ${{ steps.version.outputs.tag }}
 
     steps:
       - name: Checkout
@@ -32,52 +32,9 @@ jobs:
 
       - name: Get version from branch
         id: version
-        shell: bash
-        run: |
-          BRANCH="${GITHUB_REF_NAME}"
-
-          # release/1.4.0 -> 1.4.0
-          VERSION="${BRANCH#release/}"
-
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Invalid release branch: $BRANCH"
-            echo "Expected: release/x.y.z"
-            exit 1
-          fi
-
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Calculate next RC
-        id: rc
-        shell: bash
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-
-          git fetch --tags --force
-
-          LATEST_RC=$(
-            git tag --list "v${VERSION}-rc.*" \
-              --sort=-v:refname \
-              | head -n 1
-          )
-
-          if [ -z "$LATEST_RC" ]; then
-            NEXT_RC=1
-          else
-            CURRENT_RC="${LATEST_RC##*.}"
-
-            if [[ ! "$CURRENT_RC" =~ ^[0-9]+$ ]]; then
-              echo "Invalid RC tag: $LATEST_RC"
-              exit 1
-            fi
-
-            NEXT_RC=$((CURRENT_RC + 1))
-          fi
-
-          TAG="v${VERSION}-rc.${NEXT_RC}"
-
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "Next RC: $TAG"
+        uses: Narutchai01/gitops/.github/actions/prepare-rc@main
+        with:
+          release-branch: ${{ github.ref_name }}
 
   quality:
     name: Quality Check
@@ -90,16 +47,9 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: Narutchai01/gitops/.github/actions/node-quality@main
         with:
           node-version: 24
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Lint
-        run: npm run lint
 
       # - name: Type check
       #   run: npm run typecheck
@@ -122,29 +72,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Login to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
       - name: Build and push
         id: build
-        uses: docker/build-push-action@v7
+        uses: Narutchai01/gitops/.github/actions/build-image@main
         with:
-          context: .
-          push: true
-
+          registry: ${{ env.REGISTRY }}
+          image-name: ${{ env.IMAGE_NAME }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.prepare.outputs.tag }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
-
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          token: ${{ secrets.GITHUB_TOKEN }}
 
   create-tag:
     name: Create RC Release
@@ -160,29 +97,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Create Git tag
-        shell: bash
-        run: |
-          TAG="${{ needs.prepare.outputs.tag }}"
-
-          git config user.name "github-actions[bot]"
-          git config user.email \
-            "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git tag -a "$TAG" -m "Release candidate $TAG"
-          git push origin "$TAG"
-
-      - name: Create GitHub Pre-release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ needs.prepare.outputs.tag }}"
-
-          gh release create "$TAG" \
-            --title "$TAG" \
-            --prerelease \
-            --generate-notes \
-            --verify-tag
+      - name: Create RC release
+        uses: Narutchai01/gitops/.github/actions/create-release@main
+        with:
+          tag: ${{ needs.prepare.outputs.tag }}
+          prerelease: 'true'
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Release summary
         run: |

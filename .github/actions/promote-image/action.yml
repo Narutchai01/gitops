@@ -1,0 +1,72 @@
+name: Promote Image
+description: Promote an RC image to production tags and verify all digests match.
+inputs:
+  registry:
+    description: Container registry
+    required: false
+    default: ghcr.io
+  image-name:
+    description: Image name; defaults to the caller repository
+    required: false
+    default: ''
+  rc-tag:
+    description: Source release candidate tag
+    required: true
+  final-tag:
+    description: Production version tag
+    required: true
+  token:
+    description: Registry token
+    required: true
+outputs:
+  digest:
+    description: Verified source image digest
+    value: ${{ steps.promote.outputs.digest }}
+runs:
+  using: composite
+  steps:
+    - uses: docker/login-action@v4
+      with:
+        registry: ${{ inputs.registry }}
+        username: ${{ github.actor }}
+        password: ${{ inputs.token }}
+    - uses: docker/setup-buildx-action@v4
+    - id: promote
+      shell: bash
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        IMAGE_NAME: ${{ inputs.image-name || github.repository }}
+        RC_TAG: ${{ inputs.rc-tag }}
+        FINAL_TAG: ${{ inputs.final-tag }}
+      run: |
+        RC_IMAGE="$REGISTRY/$IMAGE_NAME:$RC_TAG"
+        FINAL_IMAGE="$REGISTRY/$IMAGE_NAME:$FINAL_TAG"
+        LATEST_IMAGE="$REGISTRY/$IMAGE_NAME:latest"
+
+        echo "Source: $RC_IMAGE"
+        SOURCE_DIGEST=$(docker buildx imagetools inspect "$RC_IMAGE" | awk '/^Digest:/ {print $2; exit}')
+        if [ -z "$SOURCE_DIGEST" ]; then
+          echo "Cannot resolve source image digest."
+          exit 1
+        fi
+        SOURCE="$REGISTRY/$IMAGE_NAME@$SOURCE_DIGEST"
+        echo "Digest: $SOURCE_DIGEST"
+
+        docker buildx imagetools create --prefer-index=false --tag "$FINAL_IMAGE" "$SOURCE"
+        docker buildx imagetools create --prefer-index=false --tag "$LATEST_IMAGE" "$SOURCE"
+
+        FINAL_DIGEST=$(docker buildx imagetools inspect "$FINAL_IMAGE" | awk '/^Digest:/ {print $2; exit}')
+        LATEST_DIGEST=$(docker buildx imagetools inspect "$LATEST_IMAGE" | awk '/^Digest:/ {print $2; exit}')
+        echo "RC:     $SOURCE_DIGEST"
+        echo "Final:  $FINAL_DIGEST"
+        echo "Latest: $LATEST_DIGEST"
+        if [ "$SOURCE_DIGEST" != "$FINAL_DIGEST" ]; then
+          echo "Final image digest does not match RC."
+          exit 1
+        fi
+        if [ "$SOURCE_DIGEST" != "$LATEST_DIGEST" ]; then
+          echo "Latest image digest does not match RC."
+          exit 1
+        fi
+
+        echo "digest=$SOURCE_DIGEST" >> "$GITHUB_OUTPUT"
