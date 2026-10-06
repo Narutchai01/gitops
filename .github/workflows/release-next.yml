@@ -1,0 +1,305 @@
+name: Production Release
+
+on:
+  workflow_call:
+    inputs:
+      release-branch:
+        description: Release branch, e.g. release/1.4.0
+        required: true
+        type: string
+
+      release-sha:
+        description: Release branch HEAD SHA
+        required: true
+        type: string
+
+      main-sha:
+        description: Main merge commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  prepare:
+    name: Prepare Production Release
+    runs-on: ubuntu-latest
+
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      rc-tag: ${{ steps.release.outputs.rc-tag }}
+      final-tag: ${{ steps.release.outputs.final-tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Fetch tags
+        run: git fetch --tags --force
+
+      - name: Resolve production version
+        id: release
+        shell: bash
+        run: |
+          RELEASE_BRANCH="${{ inputs.release-branch }}"
+
+          VERSION="${RELEASE_BRANCH#release/}"
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release branch: $RELEASE_BRANCH"
+            echo "Expected: release/x.y.z"
+            exit 1
+          fi
+
+          RC_TAG=$(
+            git tag \
+              --list "v${VERSION}-rc.*" \
+              --sort=-v:refname \
+            | head -n 1
+          )
+
+          if [ -z "$RC_TAG" ]; then
+            echo "No RC found for version $VERSION"
+            exit 1
+          fi
+
+          FINAL_TAG="v${VERSION}"
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "rc-tag=$RC_TAG" >> "$GITHUB_OUTPUT"
+          echo "final-tag=$FINAL_TAG" >> "$GITHUB_OUTPUT"
+
+          echo "RC:    $RC_TAG"
+          echo "Final: $FINAL_TAG"
+
+      - name: Verify RC commit
+        shell: bash
+        run: |
+          RC_TAG="${{ steps.release.outputs.rc-tag }}"
+          EXPECTED_SHA="${{ inputs.release-sha }}"
+
+          RC_SHA=$(git rev-list -n 1 "$RC_TAG")
+
+          echo "RC tag commit: $RC_SHA"
+          echo "Release HEAD:   $EXPECTED_SHA"
+
+          if [ "$RC_SHA" != "$EXPECTED_SHA" ]; then
+            echo "RC tag does not point to the merged release HEAD."
+            echo "A newer commit may have been merged without creating/testing an RC."
+            exit 1
+          fi
+
+      - name: Verify release tree matches main
+        shell: bash
+        run: |
+          RC_TAG="${{ steps.release.outputs.rc-tag }}"
+          MAIN_SHA="${{ inputs.main-sha }}"
+
+          # The release branch determines the product version; package.json has its own version cadence.
+          if ! git diff --quiet "$RC_TAG" "$MAIN_SHA" -- . ':(exclude)package.json'; then
+            echo "Main source differs from the tested RC."
+            echo "Production promotion aborted."
+            exit 1
+          fi
+
+          RC_PACKAGE=$(git show "$RC_TAG:package.json" | jq -cS 'del(.version)')
+          MAIN_PACKAGE=$(git show "$MAIN_SHA:package.json" | jq -cS 'del(.version)')
+          if [ "$RC_PACKAGE" != "$MAIN_PACKAGE" ]; then
+            echo "package.json changed beyond its release metadata version."
+            echo "Production promotion aborted."
+            exit 1
+          fi
+
+          echo "Release tree matches main; package.json version metadata may differ."
+
+  promote:
+    name: Promote Docker Image
+    needs:
+      - prepare
+
+    runs-on: ubuntu-latest
+
+    outputs:
+      digest: ${{ steps.promote.outputs.digest }}
+
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Promote RC image
+        id: promote
+        shell: bash
+        run: |
+          RC_TAG="${{ needs.prepare.outputs.rc-tag }}"
+          FINAL_TAG="${{ needs.prepare.outputs.final-tag }}"
+
+          RC_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${RC_TAG}"
+          FINAL_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${FINAL_TAG}"
+          LATEST_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+
+          echo "Source: $RC_IMAGE"
+
+          SOURCE_DIGEST=$(
+            docker buildx imagetools inspect "$RC_IMAGE" \
+              | awk '/^Digest:/ {print $2; exit}'
+          )
+
+          if [ -z "$SOURCE_DIGEST" ]; then
+            echo "Cannot resolve source image digest."
+            exit 1
+          fi
+
+          SOURCE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${SOURCE_DIGEST}"
+
+          echo "Digest: $SOURCE_DIGEST"
+
+          # Promote exact artifact to version tag
+          docker buildx imagetools create \
+            --prefer-index=false \
+            --tag "$FINAL_IMAGE" \
+            "$SOURCE"
+
+          # Promote exact artifact to latest
+          docker buildx imagetools create \
+            --prefer-index=false \
+            --tag "$LATEST_IMAGE" \
+            "$SOURCE"
+
+          FINAL_DIGEST=$(
+            docker buildx imagetools inspect "$FINAL_IMAGE" \
+              | awk '/^Digest:/ {print $2; exit}'
+          )
+
+          LATEST_DIGEST=$(
+            docker buildx imagetools inspect "$LATEST_IMAGE" \
+              | awk '/^Digest:/ {print $2; exit}'
+          )
+
+          echo "RC:     $SOURCE_DIGEST"
+          echo "Final:  $FINAL_DIGEST"
+          echo "Latest: $LATEST_DIGEST"
+
+          if [ "$SOURCE_DIGEST" != "$FINAL_DIGEST" ]; then
+            echo "Final image digest does not match RC."
+            exit 1
+          fi
+
+          if [ "$SOURCE_DIGEST" != "$LATEST_DIGEST" ]; then
+            echo "Latest image digest does not match RC."
+            exit 1
+          fi
+
+          echo "digest=$SOURCE_DIGEST" >> "$GITHUB_OUTPUT"
+
+  release:
+    name: Create Production Release
+    needs:
+      - prepare
+      - promote
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Create production Git tag
+        shell: bash
+        run: |
+          TAG="${{ needs.prepare.outputs.final-tag }}"
+          MAIN_SHA="${{ inputs.main-sha }}"
+
+          git fetch --tags --force
+
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            EXISTING_SHA=$(git rev-list -n 1 "$TAG")
+
+            if [ "$EXISTING_SHA" != "$MAIN_SHA" ]; then
+              echo "$TAG already exists on another commit."
+              exit 1
+            fi
+
+            echo "$TAG already exists. Skipping."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git tag -a "$TAG" "$MAIN_SHA" \
+            -m "Production release $TAG"
+
+          git push origin "$TAG"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          TAG="${{ needs.prepare.outputs.final-tag }}"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "GitHub Release already exists: $TAG"
+            exit 0
+          fi
+
+          PREVIOUS_RELEASE=$(
+            gh release list \
+              --exclude-drafts \
+              --exclude-pre-releases \
+              --limit 1 \
+              --json tagName \
+              --jq '.[0].tagName // empty'
+          )
+
+          if [ -n "$PREVIOUS_RELEASE" ]; then
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --generate-notes \
+              --notes-start-tag "$PREVIOUS_RELEASE" \
+              --latest \
+              --verify-tag
+          else
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --generate-notes \
+              --latest \
+              --verify-tag
+          fi
+
+      - name: Release summary
+        shell: bash
+        run: |
+          echo "### Production Release 🚀" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "RC: \`${{ needs.prepare.outputs.rc-tag }}\`" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+          echo "Release: \`${{ needs.prepare.outputs.final-tag }}\`" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+          echo "Digest: \`${{ needs.promote.outputs.digest }}\`" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "✅ Production uses the same artifact tested in RC." \
+            >> "$GITHUB_STEP_SUMMARY"
