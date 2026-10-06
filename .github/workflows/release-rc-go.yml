@@ -93,7 +93,7 @@ jobs:
         uses: Narutchai01/gitops/.github/actions/create-release@main
         with:
           tag: ${{ needs.prepare.outputs.tag }}
-          prerelease: 'true'
+          prerelease: "true"
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Release summary
